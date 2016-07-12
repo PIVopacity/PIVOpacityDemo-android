@@ -5,7 +5,7 @@ This project was developed with funding from the United States Government as an 
 
 
 ### License ###
-See [LICENSE]()
+See [LICENSE](https://raw.githubusercontent.com/PIVopacity/PIVOpacityDemo-android/master/LICENSE.txt)
 
 ### Security ###
 This project was developed to demonstrate communication functionality only and is not meant to serve as a fully secured example of the communication protocol.
