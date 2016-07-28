@@ -67,6 +67,32 @@ public class Opacity
 	/**
 	 * Builds a General Authenticate message.
 	 */
+	private static byte[] berTlvEncodeLen(int num)
+    {
+        byte[] msg={};
+        if (num<128)
+        {
+            msg=ByteUtil.hexStringToByteArray(String.format("%02x",num));
+        }
+        else if (num>127 && num<256)
+        {
+            msg=ByteUtil.hexStringToByteArray(String.format("81%02x",num));
+        }
+        else if (num>255 && num<65536)
+        {
+            msg=ByteUtil.hexStringToByteArray(String.format("82%04x",num));
+        }
+        else if (num>65535 && num<16777216)
+        {
+            msg=ByteUtil.hexStringToByteArray(String.format("83%06x",num));
+        }
+        else if (num>16777215 && num<2147483647)
+        {
+            msg=ByteUtil.hexStringToByteArray(String.format("84%08x",num));
+        }
+        return msg;
+    }
+
 	public static byte[] buildGeneralAuthenticate(byte[] cbh, byte[] idh, byte[] key)
 	{
 		// Compute length of: chb + idh + key
@@ -123,7 +149,7 @@ public class Opacity
 	 * @param le may be null or empty
 	 * @return the encrypted APDU
 	 */
-	public static byte[] encryptApdu(AesParameters params, byte[] ins, byte[] p1, byte[] p2, byte[] message, byte[] le)
+	public static byte[][] encryptApdu(AesParameters params, byte[] ins, byte[] p1, byte[] p2, byte[] message, byte[] le)
 			throws GeneralSecurityException
 	{
 		logger.info(TAG, "ENC Counter: " + String.format("%032X", params.count));
@@ -149,14 +175,8 @@ public class Opacity
 		if (null == le || le.length == 0)
 		{
 			fullMessage = ByteUtil.concatenate(
-					new byte[] { (byte) 0x0c },
-					ins,
-					p1,
-					p2,
-					new byte[] { (byte) (encryptedMessage.length + berTlvCmac.length) },
 					encryptedMessage,
-					berTlvCmac,
-					new byte[1]);
+					berTlvCmac);
 		}
 		else
 		{
@@ -164,20 +184,55 @@ public class Opacity
 					ByteUtil.hexStringToByteArray(String.format("97 %02x", le.length)),
 					le);
 			fullMessage = ByteUtil.concatenate(
-					new byte[] { (byte) 0x0c },
-					ins,
-					p1,
-					p2,
-					new byte[] { (byte) (encryptedMessage.length + berTlvLen.length + berTlvCmac.length) },
 					encryptedMessage,
 					berTlvLen,
-					berTlvCmac,
-					new byte[1]);
+					berTlvCmac);
 		}
 
-		logger.info(TAG, "Full encryption wrapped APDU: " + ByteUtil.toHexString(fullMessage, " "));
+        byte [][] commandList;
+        if (fullMessage.length>255)
+        {
+            commandList=new byte[1+fullMessage.length/255][];
 
-		return fullMessage;
+            for (int i=0; i<fullMessage.length/255; i++)
+            {
+                commandList[i]=ByteUtil.concatenate(
+                        new byte[] { (byte) 0x1c },
+                        ins,
+                        p1,
+                        p2,
+                        new byte[] { (byte) 0xFF },
+                        Arrays.copyOfRange(fullMessage,i*255,(i+1)*255));
+            }
+
+            commandList[fullMessage.length / 255] = ByteUtil.concatenate(
+                    new byte[]{(byte) 0x0c},
+                    ins,
+                    p1,
+                    p2,
+                    new byte[]{(byte) (fullMessage.length % 255)},
+                    Arrays.copyOfRange(fullMessage, fullMessage.length - fullMessage.length % 255, fullMessage.length),
+                    new byte[] {(byte) 0x00});
+            }
+        else
+        {
+            commandList=new byte[1][];
+            commandList[0]=ByteUtil.concatenate(
+                    new byte[]{(byte) 0x0c},
+                    ins,
+                    p1,
+                    p2,
+                    new byte[]{(byte) (fullMessage.length)},
+                    fullMessage,
+                    new byte[] {(byte) 0x00});
+        }
+
+        logger.info(TAG, "Full encryption wrapped APDU: ");
+        for(int i=0; i<commandList.length; i++)
+        {
+            logger.info(TAG, ByteUtil.toHexString(commandList[i], " ") + "\n");
+        }
+		return commandList;
 	}
 
 	/**
@@ -217,8 +272,10 @@ public class Opacity
 		logger.info(TAG, "Padded message: " + ByteUtil.toHexString(paddedMessage, " "));
 
 		byte[] encryptedMessage = cipher.doFinal(paddedMessage);
-		byte[] header = ByteUtil.hexStringToByteArray(String.format("87 %02X 01", encryptedMessage.length + 1));
-		return ByteUtil.concatenate(header, encryptedMessage);
+		byte[] header = ByteUtil.hexStringToByteArray(String.format("87"));
+        byte[] headerLen= berTlvEncodeLen(encryptedMessage.length + 1);
+        byte[] headerTail = ByteUtil.hexStringToByteArray(String.format("01"));
+		return ByteUtil.concatenate(header, headerLen, headerTail, encryptedMessage);
 	}
 
 	private static byte[] getIv(int count, Cipher cipher, IvFormat format)
@@ -338,4 +395,29 @@ public class Opacity
 		byte[] pad = new byte[padLength];
 		return ByteUtil.concatenate(s, new byte[] { (byte)0x80 }, pad);
 	}
+
+
+    /**
+     * PCKS #1 v1.5 padding defined in IETF RFC 2313
+     * @param BT Block Type Byte, shall be '01' or '00' for private key operation
+     * @param Nonce Nonce used for RSA signing challenge
+     * @return padded message
+     */
+    public static byte[] pkcs1v15Pad(String BT, String Nonce)
+    {
+        return pkcs1v15Pad(BT,Nonce.getBytes());
+    }
+
+    public static byte[] pkcs1v15Pad(String BT, byte[] Nonce)
+    {
+        byte[] msg=new byte[] { (byte) 0x00 };
+        msg = ByteUtil.concatenate(msg, ByteUtil.hexStringToByteArray(BT));
+        for(int i =0; i<(256-3-Nonce.length); i++)
+        {
+            msg = ByteUtil.concatenate(msg, new byte[] { (byte) 0xFF});
+        }
+        msg = ByteUtil.concatenate(msg, new byte[] { (byte) 0x00 });
+        msg = ByteUtil.concatenate(msg, Nonce);
+        return msg;
+    }
 }

@@ -154,21 +154,42 @@ public class Transceiver
 	 */
 	public Response transceive(String apduType, String apduData)
 	{
-		return transceive(apduType, ByteUtil.hexStringToByteArray(apduData));
+		byte[][] apduBytes=new byte[1][];
+        apduBytes[0]=ByteUtil.hexStringToByteArray(apduData);
+        return transceive(apduType, apduBytes);
 	}
 
-	/**
-	 * Sends the specified data to the tag and returns the complete
-	 * response, concatenating continued responses if necessary.
-	 *
-	 * @param apduType the type of APDU being sent
-	 * @param apduData the APDU data that is being sent
-	 * @return the complete response; null is returned if the transaction fails
-	 */
-	public Response transceive(String apduType, byte[] apduData)
+    /**
+     * Sends the specified data to the tag and returns the complete
+     * response, concatenating continued responses if necessary.
+     *
+     * @param apduType the type of APDU being sent
+     * @param apduData a byte array that is converted to an array of byte arrays
+     * @return the complete response; null is returned if the transaction fails
+     */
+    public Response transceive(String apduType, byte[] apduData)
+    {
+        byte[][] apduBytes = new byte[1][];
+        apduBytes[0] = apduData;
+        return transceive(apduType, apduBytes);
+    }
+
+    /**
+     * Sends the specified data to the tag and returns the complete
+     * response, concatenating continued responses if necessary.
+     *
+     * @param apduType the type of APDU being sent
+     * @param apduData the APDU data that is being sent
+     * @return the complete response; null is returned if the transaction fails
+     */
+	public Response transceive(String apduType, byte[][] apduData)
 	{
 		logger.newLine();
-		logger.info(TAG, "Sending " + apduType + ": " + ByteUtil.toHexString(apduData, " "));
+		logger.info(TAG, "Sending " + apduType + ": ");
+		for(byte[] byt : apduData)
+		{
+			logger.info(TAG, ByteUtil.toHexString(byt, " ") + "\n");
+		}
 
 		byte[] fullResponse;
 		try
@@ -176,28 +197,39 @@ public class Transceiver
 			long startTime = System.currentTimeMillis();
 			Response response = null;
 
-			while (null == response || response.isStatusContinued())
+            byte[][] apduBytes=apduData;
+            while (null == response || response.isStatusContinued())
 			{
-				fullResponse = isoDep.transceive(apduData);
 
-				try
-				{
-					Response newResponse = new Response(fullResponse);
-					if (null == response)
-					{
-						response = newResponse;
-					}
-					else
-					{
-						response.data = ByteUtil.concatenate(response.data, newResponse.data);
-						response.status = newResponse.status;
-					}
-				}
-				catch (Exception ex)
-				{
-					logger.warn(TAG, "Unable to parse response: " + ex.getMessage());
-					return null;
-				}
+
+                fullResponse = isoDep.transceive(apduBytes[0]);
+                Response commStatus=new Response(fullResponse);
+                if (apduBytes.length>1 && commStatus.isStatusSuccess())
+                {
+                    for (int i=1; i<apduBytes.length; i++)
+                    {
+                        fullResponse = isoDep.transceive(apduBytes[i]);
+                    }
+                }
+
+
+                try
+                {
+                    Response newResponse = new Response(fullResponse);
+                    if (null == response)
+                    {
+                        response = newResponse;
+                    } else
+                    {
+                        response.data = ByteUtil.concatenate(response.data, newResponse.data);
+                        response.status = newResponse.status;
+                    }
+                } catch (Exception ex)
+                {
+                    logger.warn(TAG, "Unable to parse response: " + ex.getMessage());
+                    return null;
+                }
+
 
 				if (!(response.isStatusSuccess() || response.isStatusContinued()))
 				{
@@ -208,14 +240,15 @@ public class Transceiver
 				// If there is more data, build message to send to ask for that data:
 				if (response.isStatusContinued())
 				{
-					apduData = ByteUtil.hexStringToByteArray(String.format("00 C0 00 00 %02x", response.status[1] & 0xff));
+                    apduBytes=new byte[1][];
+					apduBytes[0] = ByteUtil.hexStringToByteArray(String.format("00 C0 00 00 %02x", response.status[1] & 0xff));
 				}
 			}
 
 			long stopTime = System.currentTimeMillis();
 			if(response.data.length > 100)
 			{
-				logger.info(TAG, apduType + " Response: " + ByteUtil.toHexString(Arrays.copyOfRange(response.data,0,100), " ") + " ... response truncated ...   " + ByteUtil.toHexString(response.status, " "));
+				logger.info(TAG, apduType + " Response: " + ByteUtil.toHexString(Arrays.copyOfRange(response.data,0,86), " ") + " ... response truncated ... " + ByteUtil.toHexString(Arrays.copyOfRange(response.data,response.data.length-14,response.data.length), " ")+" "+ ByteUtil.toHexString(response.status, " "));
 			}
 			else
 			{
