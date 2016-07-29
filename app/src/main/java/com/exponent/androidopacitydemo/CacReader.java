@@ -55,6 +55,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.security.Signature;
 import java.security.SignatureException;
+import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateExpiredException;
 import java.security.cert.CertificateFactory;
@@ -318,51 +319,27 @@ public class CacReader implements NfcAdapter.ReaderCallback
         transaction = "Get X.509 Cert. for PIV Auth.";
         logger.info(TAG, transaction);
 
-        try
-        {
-            encryptedApdu = Opacity.encryptApdu(
-                    encryptionParameters,
-                    ByteUtil.hexStringToByteArray("CB"),
-                    ByteUtil.hexStringToByteArray("3F"),
-                    ByteUtil.hexStringToByteArray("FF"),
-                    ByteUtil.hexStringToByteArray("5C 03 5F C1 05"),
-                    null);
-        } catch (Exception ex)
-        {
-            logger.error(TAG, "Unable to encrypt APDU", ex);
-            logger.alert(CRYPTO_ERROR, ERROR_TITLE);
-            transceiver.close();
-            return;
-        }
-
-        response = transceiver.transceive(transaction, encryptedApdu);
-        if (null == response)
-        {
-            logger.alert(CARD_COMM_ERROR, ERROR_TITLE);
-            transceiver.close();
-            return;
-        }
-
-        if (!Opacity.confirmRmac(encryptionParameters, response.data))
-        {
-            logger.error(TAG, "Check of Response CMAC failed");
-            logger.alert(CRYPTO_ERROR, ERROR_TITLE);
-            transceiver.close();
-            return;
-        }
-
-
         X509Certificate pivCert = null;
         X509Certificate dodCaCert = new DODCACert().getDODCert();
 
-        try
+        File file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "PIV_Auth_Cert_"+ByteUtil.toHexString(opacityTunnel.cardSignature.id)+".der");
+        FileOutputStream fos = null;
+
+        if(file.exists())
         {
-            decryptedResponse = Opacity.getDecryptedResponse(encryptionParameters, response.data);
-            if (null != decryptedResponse)
+            try
             {
                 CertificateFactory cf = CertificateFactory.getInstance("X.509");
-                ByteArrayInputStream bis = new ByteArrayInputStream(Arrays.copyOfRange(decryptedResponse, 8, 8 + (((decryptedResponse[6] & 0xFF) << 8) | (decryptedResponse[7] & 0xFF))));
-                pivCert = (X509Certificate) cf.generateCertificate(bis);
+                FileInputStream fis;
+                try
+                {
+                    fis = new FileInputStream(file);
+                } catch (FileNotFoundException e)
+                {
+                    e.printStackTrace();
+                    return;
+                }
+                pivCert = (X509Certificate) cf.generateCertificate(fis);
 
                 try
                 {
@@ -377,20 +354,127 @@ public class CacReader implements NfcAdapter.ReaderCallback
                     return;
                 }
 
-                logger.info(TAG, "Decrypted response:\n" + pivCert.toString());
+                logger.info(TAG, "Stored PIV Auth. Cert:\n" + pivCert.toString());
 
 
 
+
+            } catch (GeneralSecurityException e)
+            {
+                logger.error(TAG, "Unable to decrypt response", e);
+                logger.alert(CRYPTO_ERROR, ERROR_TITLE);
+                transceiver.close();
+                return;
             }
-        } catch (GeneralSecurityException e)
-        {
-            logger.error(TAG, "Unable to decrypt response", e);
-            logger.alert(CRYPTO_ERROR, ERROR_TITLE);
-            transceiver.close();
-            return;
         }
-        encryptionParameters.count++;
+        else
+        {
 
+
+
+            try
+            {
+                encryptedApdu = Opacity.encryptApdu(
+                        encryptionParameters,
+                        ByteUtil.hexStringToByteArray("CB"),
+                        ByteUtil.hexStringToByteArray("3F"),
+                        ByteUtil.hexStringToByteArray("FF"),
+                        ByteUtil.hexStringToByteArray("5C 03 5F C1 05"),
+                        null);
+            } catch (Exception ex)
+            {
+                logger.error(TAG, "Unable to encrypt APDU", ex);
+                logger.alert(CRYPTO_ERROR, ERROR_TITLE);
+                transceiver.close();
+                return;
+            }
+
+            response = transceiver.transceive(transaction, encryptedApdu);
+            if (null == response)
+            {
+                logger.alert(CARD_COMM_ERROR, ERROR_TITLE);
+                transceiver.close();
+                return;
+            }
+
+            if (!Opacity.confirmRmac(encryptionParameters, response.data))
+            {
+                logger.error(TAG, "Check of Response CMAC failed");
+                logger.alert(CRYPTO_ERROR, ERROR_TITLE);
+                transceiver.close();
+                return;
+            }
+
+            try
+            {
+                decryptedResponse = Opacity.getDecryptedResponse(encryptionParameters, response.data);
+                if (null != decryptedResponse)
+                {
+                    CertificateFactory cf = CertificateFactory.getInstance("X.509");
+                    ByteArrayInputStream bis = new ByteArrayInputStream(Arrays.copyOfRange(decryptedResponse, 8, 8 + (((decryptedResponse[6] & 0xFF) << 8) | (decryptedResponse[7] & 0xFF))));
+                    pivCert = (X509Certificate) cf.generateCertificate(bis);
+
+                    try
+                    {
+                        pivCert.checkValidity();
+                        pivCert.verify(dodCaCert.getPublicKey());
+                        //Should do Cert CRL check here, will implement at a later date.
+                    } catch (Exception ex)
+                    {
+                        logger.error(ERROR_TITLE, "PIV Auth. Certificate Invalid! " + ex.toString());
+                        logger.alert(AUTH_ERROR, ERROR_TITLE);
+                        transceiver.close();
+                        return;
+                    }
+
+                    logger.info(TAG, "Decrypted response:\n" + pivCert.toString());
+
+
+                }
+            } catch (GeneralSecurityException e)
+            {
+                logger.error(TAG, "Unable to decrypt response", e);
+                logger.alert(CRYPTO_ERROR, ERROR_TITLE);
+                transceiver.close();
+                return;
+            }
+            try
+            {
+                fos = new FileOutputStream(file);
+                // Writes bytes from the specified byte array to this file output stream
+                try
+                {
+                    fos.write(pivCert.getEncoded());
+                } catch (CertificateEncodingException e)
+                {
+                    e.printStackTrace();
+                }
+            }catch (FileNotFoundException e)
+            {
+                System.out.println("File not found" + e);
+            }
+            catch (IOException ioe)
+            {
+                System.out.println("Exception while writing file " + ioe);
+            }
+            finally
+            {
+                // Make sure the stream is closed:
+                try
+                {
+                    if (fos != null)
+                    {
+                        fos.close();
+                    }
+                }
+                catch (IOException ioe)
+                {
+                    System.out.println("Error while closing stream: " + ioe);
+                }
+            }
+            logger.info(TAG, "PIV Auth. Cert. Path: " + file.getPath());
+            encryptionParameters.count++;
+        }
 
         // Get the PIN from the user and verify it:
 
@@ -742,8 +826,8 @@ public class CacReader implements NfcAdapter.ReaderCallback
 			logger.info(TAG, String.format("Received %d-byte facial image from card!", imageLength));
 		}
 
-		File file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "face_image.jp2");
-		FileOutputStream fos = null;
+		file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "face_image.jp2");
+		fos = null;
 		logger.info(TAG, "Image Path: " + file.getPath());
 
 		boolean success = false;

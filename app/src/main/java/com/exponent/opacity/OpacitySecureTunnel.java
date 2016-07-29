@@ -52,6 +52,7 @@ public class OpacitySecureTunnel
 	private final static String CRYPTO_ERROR = "Cryptography error: check log for details.";
 
 	public Integer TunnelCreationTimer;
+	public CardSignature cardSignature;
 
 	public OpacitySecureTunnel(Logger logger)
 	{
@@ -118,7 +119,7 @@ public class OpacitySecureTunnel
 			return null;
 		}
 
-		CardSignature cardSignature = CardSignature.parse(response.data);
+		cardSignature = CardSignature.parse(response.data);
 
 		logger.newLine();
 		logger.info(TAG, "CBicc: " + ByteUtil.toHexString(cardSignature.cb, " "));
