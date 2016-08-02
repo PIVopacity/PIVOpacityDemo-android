@@ -29,12 +29,24 @@ package com.exponent.opacity;
 import com.exponent.androidopacitydemo.ByteUtil;
 import com.exponent.androidopacitydemo.Logger;
 import com.exponent.androidopacitydemo.Transceiver;
-import com.exponent.openssl.Cmac;
-import com.exponent.openssl.EcKeyPair;
 
+
+import java.math.BigInteger;
 import java.security.GeneralSecurityException;
+import java.security.KeyFactory;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.SecureRandom;
+import java.security.interfaces.ECPrivateKey;
+import java.security.interfaces.ECPublicKey;
+import java.security.spec.ECGenParameterSpec;
+import java.security.spec.ECPoint;
+import java.security.spec.ECPublicKeySpec;
 import java.util.Arrays;
 import java.util.HashMap;
+
+import javax.crypto.KeyAgreement;
+
 
 /**
  * Holds the code for opening a secure tunnel for the Opacity protocol.
@@ -82,29 +94,28 @@ public class OpacitySecureTunnel
 			throws GeneralSecurityException
 	{
 		long startTime = System.currentTimeMillis();
-		EcKeyPair hostKeyPair = EcKeyPair.generate("prime256v1");
-		if (null != hostKeyPair.error)
-		{
-			logger.error(TAG, "Error creating Elliptic Curve key pair: " + hostKeyPair.error);
-			logger.alert(CRYPTO_ERROR, ERROR_TITLE);
-			transceiver.close();
-			return null;
-		}
-		if (hostKeyPair.publicKeyX.length != 32 || hostKeyPair.publicKeyY.length != 32)
-		{
-			logger.warn(TAG, "Unexpected public key X and Y lengths: " + hostKeyPair.publicKeyX.length + ", " + hostKeyPair.publicKeyY.length);
-			logger.alert(CRYPTO_ERROR, ERROR_TITLE);
-			transceiver.close();
-			return null;
-		}
 
 		// Construct representation of public key required for sending to card:
-		byte[] hostPublicKey = hostKeyPair.getEncodedPublicKey();
+        // NIST Prime256v1 Constructor if named curve does not exist.
+        //EllipticCurve p256v1 = new EllipticCurve(new ECFieldFp(new BigInteger("FFFFFFFF"+"00000001"+"00000000"+"00000000"+"00000000"+"FFFFFFFF"+"FFFFFFFF"+"FFFFFFFF", 16)), new BigInteger("FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFC", 16), new BigInteger("5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b", 16));
+        //ECParameterSpec ecSpec = new ECParameterSpec(p256v1,new ECPoint(new BigInteger("6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296", 16), new BigInteger("4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5", 16)),new BigInteger("FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551", 16), 1);
+
+        ECGenParameterSpec ecSpec = new ECGenParameterSpec("prime256v1");
+        KeyPairGenerator kpg = KeyPairGenerator.getInstance("EC");
+        kpg.initialize(ecSpec, new SecureRandom());
+        KeyPair pair = kpg.generateKeyPair();
+        ECPrivateKey ecPriv = (ECPrivateKey) pair.getPrivate();
+        ECPublicKey ecPub = (ECPublicKey) pair.getPublic();
+
+        byte[] hostPrivateKey=Arrays.copyOfRange(ecPriv.getEncoded(),ecPriv.getEncoded().length-70-32,ecPriv.getEncoded().length-70);
+        logger.info(TAG,"Private Key: "+ ByteUtil.toHexString(ecPriv.getEncoded()," ")+"\n"+ByteUtil.toHexString(hostPrivateKey," ")+"\n"+ByteUtil.toHexString(ecPriv.getS().toByteArray(), " "));
+
+        byte[] hostPublicKey = Arrays.copyOfRange(ecPub.getEncoded(),ecPub.getEncoded().length-65,ecPub.getEncoded().length);
+
 
 		logger.newLine();
 		logger.info(TAG, "Host Generated prime256v1 Ephemeral Pubic Key: " + ByteUtil.toHexString(hostPublicKey, " "));
-		//Print private key for debugging
-		//logger.info(TAG, "Host Generated prime256v1 Private Key: " + ByteUtil.toHexString(hostKeyPair.privateKey, " "));
+
 
 		Transceiver.Response response = transceiver.transceive("GENERAL AUTHENTICATE",
 				Opacity.buildGeneralAuthenticate(
@@ -159,44 +170,18 @@ public class OpacitySecureTunnel
 
 		logger.info(TAG, "[H4] Persistent binding disabled");
 
-		// Check if card public key is in curve domain:
-		try
-		{
-			if (new EcKeyPair(hostKeyPair.curveId, null, cardSignature.publicKey).checkKey())
-			{
-				logger.newLine();
-				logger.info(TAG, "[H5] Card public key in prime256v1 domain");
-			}
-		}
-		catch (Exception ex)
-		{
-			logger.warn(TAG, "Unable to check card public key", ex);
-		}
-
-		//logger.newLine();
 		//logger.info(TAG, "[H5] Verify CVC (ECDSA Algorithm, NIST 800-73-4 optional card to host authentication step)");
 
-		EcKeyPair ecdhKeyPair;
-		try
-		{
-			ecdhKeyPair = new EcKeyPair(hostKeyPair.curveId, hostKeyPair.privateKey, cardSignature.publicKey);
-		}
-		catch (Exception ex)
-		{
-			logger.error(TAG, "Unable to create key pair for ECDH computation: " + ex.getMessage());
-			logger.alert(CRYPTO_ERROR, ERROR_TITLE);
-			transceiver.close();
-			return null;
-		}
+        KeyFactory kf=KeyFactory.getInstance("EC");
+        ECPublicKeySpec keySpec = new ECPublicKeySpec(new ECPoint(new BigInteger(ByteUtil.toHexString(cardSignature.publicKey,1,33),16), new BigInteger(ByteUtil.toHexString(cardSignature.publicKey,33,65),16)),ecPub.getParams());
+        ECPublicKey cardPubKey= (ECPublicKey) kf.generatePublic(keySpec);
+        logger.info(TAG,"Card Public Key: "+ByteUtil.toHexString(cardPubKey.getEncoded()));
 
-		byte[] z = ecdhKeyPair.getEcdhKey();
-		if (null == z)
-		{
-			logger.warn(TAG, "Unable to compute ECDH shared secret: " + ecdhKeyPair.error);
-			logger.alert(CRYPTO_ERROR, ERROR_TITLE);
-			transceiver.close();
-			return null;
-		}
+		KeyAgreement keyAgree = KeyAgreement.getInstance("ECDH");
+        keyAgree.init(ecPriv);
+        keyAgree.doPhase(cardPubKey,true);
+        byte[] z = keyAgree.generateSecret();
+
 
 		logger.newLine();
 		logger.info(TAG, "[H8] Compute ECDH Shared Secret Z using OpenSSL : " + ByteUtil.toHexString(z, " "));
@@ -232,16 +217,16 @@ public class OpacitySecureTunnel
 		logger.info(TAG, "    ENC: " + ByteUtil.toHexString(sessionKeys.get("enc"), " "));
 		logger.info(TAG, "    RMAC: " + ByteUtil.toHexString(sessionKeys.get("rmac"), " "));
 
-        /*
-        // Test CMAC implementation for NIST compliance:
+
+        /*// Test CMAC implementation for NIST compliance:
 		if (!Cmac.nistCheck())
 		{
             logger.error(TAG, "CMAC NIST test failed");
 	        logger.alert(CRYPTO_ERROR, ERROR_TITLE);
             transceiver.close();
-            return;
-        }
-		*/
+            return null;
+        }*/
+
 
 		logger.newLine();
 		logger.info(TAG, "[H12]  Check AuthCryptogram (CMAC with AES-128 cipher, NIST 800-73-4 4.1.7)");

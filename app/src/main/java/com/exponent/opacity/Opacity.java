@@ -29,7 +29,6 @@ package com.exponent.opacity;
 import com.exponent.androidopacitydemo.ByteUtil;
 import com.exponent.androidopacitydemo.Logger;
 import com.exponent.androidopacitydemo.MainActivity;
-import com.exponent.openssl.Cmac;
 
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;

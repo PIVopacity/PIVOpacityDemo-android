@@ -24,22 +24,20 @@ SOFTWARE.
 Written by Christopher Williams, Ph.D. (cwilliams@exponent.com) & John Koehring (jkoehring@exponent.com)
 */
 
-package com.exponent.openssl;
+package com.exponent.opacity;
 
 import com.exponent.androidopacitydemo.ByteUtil;
+
+import org.spongycastle.crypto.engines.AESEngine;
+import org.spongycastle.crypto.macs.CMac;
+import org.spongycastle.crypto.params.KeyParameter;
 
 import java.util.Arrays;
 
 /**
  * Support for generating amd verifying CMACs.
  *
- * The hard labor is done in the OpenSSL library accessed through JNI.
- * Although not used directly here or in the JNI C code, the corresponding
- * header (.h) file was created using the following command. This command
- * was run in the jni parent directory (app/src/main) and the CLASSPATH
- * environment variable included ..\..\build\intermediates\classes\arm7\debug.
  *
- * "%JAVA_HOME%\bin\javah" -d jni -verbose -stubs -jni com.exponent..openssl.Cmac
  */
 public class Cmac
 {
@@ -55,11 +53,17 @@ public class Cmac
 	/**
 	 * Creates a new instance using the given key and message.
 	 */
-	public Cmac(byte[] key, byte[] message)
+
+    public Cmac(byte[] key, byte[] message)
 	{
 		this.key = Arrays.copyOf(key, key.length);
 		this.message = Arrays.copyOf(message, message.length);
-		generate();
+
+        CMac cmac = new CMac(new AESEngine());
+        cmac.init(new KeyParameter(key));
+        cmac.update(message,0,message.length);
+        this.mac=new byte[16];
+        cmac.doFinal(mac,0);
 	}
 
 	/**
@@ -80,8 +84,5 @@ public class Cmac
 		return Arrays.equals(mac, expectedMac);
 	}
 
-	/**
-	 * Generates the MAC using AES-128.
-	 */
-	public native void generate();
+
 }

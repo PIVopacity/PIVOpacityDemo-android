@@ -13,31 +13,6 @@ model {
 	        versionName "1.0"
 	    }
 
-		/*
-         * native build settings
-         */
-		ndk {
-			moduleName = "exp-openssl"
-
-			CFlags.add("-I${getRootDir()}/openssl-1.0.2g/include".toString())
-			ldFlags.add("-L${getRootDir()}/openssl-1.0.2g".toString())
-			ldLibs.add("crypto")
-			/*
-             * Other ndk flags configurable here are
-             * cppFlags.add("-fno-rtti")
-             * cppFlags.add("-fno-exceptions")
-             * ldLibs.addAll(["android", "log"])
-             * stl       = "system"
-             */
-		}
-
-		buildTypes {
-	        release {
-	            minifyEnabled false
-             	proguardFiles.add(file("proguard-rules.pro"))
-			}
-		}
-
 		productFlavors {
 			// for detailed abiFilter descriptions, refer to "Supported ABIs" @
 			// https://developer.android.com/ndk/guides/abis.html#sa
@@ -74,8 +49,9 @@ model {
 }
 
 dependencies {
-    compile fileTree(include: ['*.jar'], dir: 'libs')
-    testCompile 'junit:junit:4.12'
-    compile 'com.android.support:appcompat-v7:23.4.0'
-    compile 'com.android.support:design:23.4.0'
+	compile fileTree(include: ['*.jar'], dir: 'libs')
+	testCompile 'junit:junit:4.12'
+	compile 'com.android.support:appcompat-v7:23.4.0'
+	compile 'com.android.support:design:23.4.0'
+	compile 'ch.dissem.jabit:jabit-cryptography-spongy:1.0.1'
 }
