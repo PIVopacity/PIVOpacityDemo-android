@@ -29,6 +29,7 @@ package com.exponent.opacity;
 import com.exponent.androidopacitydemo.ByteUtil;
 
 import org.spongycastle.crypto.engines.AESEngine;
+import org.spongycastle.crypto.engines.AESFastEngine;
 import org.spongycastle.crypto.macs.CMac;
 import org.spongycastle.crypto.params.KeyParameter;
 
@@ -46,6 +47,9 @@ public class Cmac
 	public byte[] mac;
 	public String error;
 
+    /**
+     * Checks the CMAC implementation against NIST test data. NIST SP 800-38B Appendix D.1 (p.15)
+     */
 	public final static String NIST_TEST_KEY = "2b 7e 15 16 28 ae d2 a6 ab f7 15 88 09 cf 4f 3c";
 	public final static String NIST_TEST_MESSAGE = "";
 	public final static String NIST_TEST_MAC = "bb 1d 69 29 e9 59 37 28 7f a3 7d 12 9b 75 67 46";
@@ -59,16 +63,13 @@ public class Cmac
 		this.key = Arrays.copyOf(key, key.length);
 		this.message = Arrays.copyOf(message, message.length);
 
-        CMac cmac = new CMac(new AESEngine());
+        CMac cmac = new CMac(new AESFastEngine());
         cmac.init(new KeyParameter(key));
         cmac.update(message,0,message.length);
         this.mac=new byte[16];
         cmac.doFinal(mac,0);
 	}
 
-	/**
-	 * Checks the CMAC implementation against NIST test data. NIST SP 800-38B Appendix D.1 (p.15)
-	 */
 	public static boolean nistCheck()
 	{
 		Cmac cmac = new Cmac(ByteUtil.hexStringToByteArray(NIST_TEST_KEY), ByteUtil.hexStringToByteArray(NIST_TEST_MESSAGE));
