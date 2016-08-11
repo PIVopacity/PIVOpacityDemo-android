@@ -369,9 +369,6 @@ public class CacReader implements NfcAdapter.ReaderCallback
         }
         else
         {
-
-
-
             try
             {
                 encryptedApdu = Opacity.encryptApdu(

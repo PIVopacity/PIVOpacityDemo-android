@@ -29,7 +29,6 @@ package com.exponent.opacity;
 import com.exponent.androidopacitydemo.ByteUtil;
 
 import org.spongycastle.crypto.engines.AESEngine;
-import org.spongycastle.crypto.engines.AESFastEngine;
 import org.spongycastle.crypto.macs.CMac;
 import org.spongycastle.crypto.params.KeyParameter;
 
@@ -63,7 +62,7 @@ public class Cmac
 		this.key = Arrays.copyOf(key, key.length);
 		this.message = Arrays.copyOf(message, message.length);
 
-        CMac cmac = new CMac(new AESFastEngine());
+        CMac cmac = new CMac(new AESEngine());
         cmac.init(new KeyParameter(key));
         cmac.update(message,0,message.length);
         this.mac=new byte[16];
