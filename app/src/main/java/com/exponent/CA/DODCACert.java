@@ -34,7 +34,7 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 
 /**
- * Embedded implementation of CA/DODJITCCA_41.cer
+ * Embedded implementation of CA/DODJITCIDCA_41.cer
  *
  * This implementation for demonstration only, this functionality would download cert in real app
  */
